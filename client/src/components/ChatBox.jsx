@@ -19,7 +19,7 @@ const ChatBox = () => {
 
     try {
       // Send the query to the server (Fix: Send "question" instead of "query")
-      const response = await fetch("http://localhost:8080/chat", {
+      const response = await fetch("https://documentq-a.onrender.com/chat", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
