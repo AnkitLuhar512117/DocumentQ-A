@@ -22,116 +22,98 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const port = process.env.PORT || 8080;
+
 app.use(cors());
 app.use(express.json());
 
 // Create uploads directory if it doesn't exist
 const uploadsDir = path.join(__dirname, "uploads");
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
-}
+if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
 
 // Multer configuration
 const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, uploadsDir);
-  },
-  filename: (req, file, cb) => {
-    cb(null, Date.now() + path.extname(file.originalname));
-  },
+  destination: (req, file, cb) => cb(null, uploadsDir),
+  filename: (req, file, cb) =>
+    cb(null, Date.now() + path.extname(file.originalname)),
 });
-const upload = multer({ storage: storage });
+const upload = multer({ storage });
 
 // Initialize Pinecone
 const pc = new Pinecone({ apiKey: process.env.PINECONE_API_KEY });
 const pineconeIndex = pc.index(process.env.PINECONE_INDEX);
 
-// Initialize Groq
+// Initialize LLM (Groq)
 const model = new ChatGroq({
-  model: "deepseek-r1-distill-llama-70b",
+  model: "allam-2-7b",
   apiKey: process.env.GROQ_API_KEY,
-  temperature: 0.7,
+  temperature: 0,
 });
-//embeedings::
+
+// Embeddings
 const embeddings = new CohereEmbeddings({
   apiKey: process.env.COHERE_API_KEY,
   batchSize: 48,
   model: "embed-english-v3.0",
 });
 
+// Strict prompt for direct answers
 const prompt = ChatPromptTemplate.fromTemplate(`
-  Answer the user's questions based on the provided context,and give the proper structured answer like a AI agent,answer should be short in length.
-  Context: {context}
-  Question: {input}
-  Answer:
+You are an AI assistant. Answer the user's question directly and concisely based on the given context.
+Do NOT explain your reasoning.
+Do NOT use tags like <think> or similar.
+If the answer is not in the context, reply exactly: "Information not available in the provided document."
+
+Context: {context}
+
+Question: {input}
+
+Answer:
 `);
 
 const parser = new StringOutputParser();
 
-// Upload & Process File
+// --- Upload & Process File ---
 app.post("/upload", upload.single("file"), async (req, res) => {
-  if (!req.file) {
-    return res.status(400).json({ error: "No file uploaded" });
-  }
+  if (!req.file) return res.status(400).json({ error: "No file uploaded" });
 
   const filePath = path.join(uploadsDir, req.file.filename);
-  console.log("Processing file:", filePath);
-  const fileExtension = path.extname(req.file.originalname).toLowerCase();
+  const ext = path.extname(req.file.originalname).toLowerCase();
   let docs = [];
 
   try {
-    // Process different file types
-    if (fileExtension === ".pdf") {
+    if (ext === ".pdf") {
       const loader = new PDFLoader(filePath);
       docs = await loader.load();
-      console.log("PDF loaded successfully");
-    } else if (fileExtension === ".docx") {
-      const docxBuffer = await fs.promises.readFile(filePath);
-      const docxData = await mammoth.extractRawText({ buffer: docxBuffer });
-      docs = [{ pageContent: docxData.value, metadata: { source: filePath } }];
-    } else if (fileExtension === ".txt") {
-      const textContent = await fs.promises.readFile(filePath, "utf-8");
-      docs = [{ pageContent: textContent, metadata: { source: filePath } }];
-    } else {
-      return res.status(400).json({ error: "Unsupported file type" });
-    }
+    } else if (ext === ".docx") {
+      const buffer = await fs.promises.readFile(filePath);
+      const data = await mammoth.extractRawText({ buffer });
+      docs = [{ pageContent: data.value, metadata: { source: filePath } }];
+    } else if (ext === ".txt") {
+      const text = await fs.promises.readFile(filePath, "utf-8");
+      docs = [{ pageContent: text, metadata: { source: filePath } }];
+    } else return res.status(400).json({ error: "Unsupported file type" });
 
-    // Split text into chunks
+    // Split into chunks
     const splitter = new RecursiveCharacterTextSplitter({
       chunkSize: 200,
       chunkOverlap: 20,
     });
-
     const chunks = await splitter.splitDocuments(docs);
-    console.log(`Created ${chunks.length} chunks`);
 
-    // Generate embeddings for each chunk
+    // Upload embeddings to Pinecone
     for (let i = 0; i < chunks.length; i++) {
       const chunk = chunks[i];
-      const embedding = await embeddings.embedQuery(chunk.pageContent);
-      // Upload to Pinecone
+      const vector = await embeddings.embedQuery(chunk.pageContent);
       await pineconeIndex.upsert([
         {
           id: `${req.file.filename}-${i}`,
-          values: embedding,
-          metadata: {
-            text: chunk.pageContent,
-            source: chunk.metadata.source,
-            page: chunk.metadata.page || 1,
-          },
+          values: vector,
+          metadata: { text: chunk.pageContent, source: chunk.metadata.source },
         },
       ]);
-
-      console.log(`Processed chunk ${i + 1}/${chunks.length}`);
     }
 
-    // Clean up the uploaded file
-    try {
-      await fs.promises.unlink(filePath);
-      console.log("Cleaned up uploaded file");
-    } catch (err) {
-      console.error("Error deleting uploaded file:", err);
-    }
+    await fs.promises.unlink(filePath);
 
     res.status(200).json({
       message: "File processed successfully",
@@ -139,57 +121,44 @@ app.post("/upload", upload.single("file"), async (req, res) => {
       pageCount: docs.length,
     });
   } catch (error) {
-    console.error("File processing error:", error);
-    // Attempt to clean up file if it exists
+    console.error("Upload error:", error);
     try {
-      if (fs.existsSync(filePath)) {
-        await fs.promises.unlink(filePath);
-      }
-    } catch (err) {
-      console.error("Error deleting file during cleanup:", err);
-    }
-    res.status(500).json({
-      error: "Error processing file",
-      details: error.message,
-    });
+      if (fs.existsSync(filePath)) await fs.promises.unlink(filePath);
+    } catch {}
+    res
+      .status(500)
+      .json({ error: "Error processing file", details: error.message });
   }
 });
 
-// Chat endpoint
+// --- Chat Endpoint ---
 app.post("/chat", async (req, res) => {
   const { question } = req.body;
-  if (!question) {
-    return res.status(400).json({ error: "Question is required" });
-  }
-
-  console.log("Received question:", question); // Debugging
+  if (!question) return res.status(400).json({ error: "Question is required" });
 
   try {
-    // Generate embedding for the question
-    const questionEmbedding = await embeddings.embedQuery(question);
+    const qVec = await embeddings.embedQuery(question);
 
-    // Retrieve relevant documents from Pinecone
     const results = await pineconeIndex.query({
-      vector: questionEmbedding,
-      topK: 3,
+      vector: qVec,
+      topK: 5,
       includeMetadata: true,
     });
 
-    console.log("Retrieved Documents:", results.matches); // Debugging
-
     if (!results.matches || results.matches.length === 0) {
       return res.status(200).json({
-        answer: "I couldn't find any relevant information.",
+        answer: "Information not available in the provided document.",
         sourcesUsed: 0,
       });
     }
 
-    const retrievedDocs = results.matches.map((match) => ({
-      pageContent: match.metadata.text, // Ensure correct format
-      metadata: { source: match.metadata.source, page: match.metadata.page },
-    }));
+    const rankedDocs = results.matches
+      .sort((a, b) => b.score - a.score)
+      .map((m) => ({
+        pageContent: m.metadata.text,
+        metadata: { source: m.metadata.source },
+      }));
 
-    // Create and execute the chain
     const chain = await createStuffDocumentsChain({
       llm: model,
       prompt,
@@ -197,33 +166,28 @@ app.post("/chat", async (req, res) => {
     });
 
     const response = await chain.invoke({
-      context: retrievedDocs,
+      context: rankedDocs,
       input: question,
     });
-    console.log(response);
 
-    res.status(200).json({
-      answer: response || "Sorry, I couldn't generate a response.",
-      sourcesUsed: results.matches.length,
-    });
+    res.status(200).json({ answer: response, sourcesUsed: rankedDocs.length });
   } catch (error) {
-    console.error("Chat processing error:", error);
-    res.status(500).json({
-      error: "Error processing query",
-      details: error.message,
-    });
+    console.error("Chat error:", error);
+    res
+      .status(500)
+      .json({ error: "Error processing query", details: error.message });
   }
 });
 
-// Health check endpoint
+// --- Health Check ---
 app.get("/", (req, res) => {
   res.json({
-    status: "Server is running",
+    status: "Server running",
     version: "1.0.0",
     uploadsDirectory: uploadsDir,
   });
 });
 
-app.listen(port, () => {
-  console.log(`Server running on http://localhost:${port}`);
-});
+app.listen(port, () =>
+  console.log(`Server running at http://localhost:${port}`)
+);

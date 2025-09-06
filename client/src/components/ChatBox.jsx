@@ -1,97 +1,107 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 
 const ChatBox = () => {
   const [messages, setMessages] = useState([]);
   const [userQuery, setUserQuery] = useState("");
   const [loading, setLoading] = useState(false);
+  const chatEndRef = useRef(null);
 
-  // Function to send message to the AI
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, loading]);
+
   const handleSendMessage = async () => {
-    if (!userQuery.trim()) return; // Avoid sending empty queries
+    if (!userQuery.trim()) return;
 
-    // Add the user query to the message list
-    setMessages((prevMessages) => [
-      ...prevMessages,
-      { sender: "user", text: userQuery },
-    ]);
-
-    setLoading(true); // Show loading spinner
+    setMessages((prev) => [...prev, { sender: "user", text: userQuery }]);
+    setLoading(true);
 
     try {
-      // Send the query to the server (Fix: Send "question" instead of "query")
       const response = await fetch("https://documentq-a.onrender.com/chat", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ question: userQuery }), // Fixed key
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ question: userQuery }),
       });
-
       const data = await response.json();
-
-      // Fix: Access "answer" instead of "response"
-      setMessages((prevMessages) => [
-        ...prevMessages,
+      setMessages((prev) => [
+        ...prev,
         { sender: "ai", text: data.answer || "No response received." },
       ]);
     } catch (error) {
-      console.error("Error:", error);
-      setMessages((prevMessages) => [
-        ...prevMessages,
-        { sender: "ai", text: "Sorry, something went wrong." },
+      console.error(error);
+      setMessages((prev) => [
+        ...prev,
+        { sender: "ai", text: "Oops! Something went wrong." },
       ]);
     } finally {
-      setLoading(false); // Hide loading spinner
+      setLoading(false);
     }
 
-    // Clear the input field
     setUserQuery("");
   };
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-[#35130a]">
-      <div className="w-full sm:w-[430px] bg-[#1d2429] p-6 rounded-xl shadow-lg overflow-hidden">
-        <div className="h-[430px] overflow-y-auto mb-6 bg-[#202c33] p-4 rounded-lg">
-          {/* Display messages */}
-          {messages.map((msg, index) => (
-            <div
-              key={index}
-              className={`mb-3 ${
-                msg.sender === "user" ? "text-right" : "text-left"
+    <div className="flex flex-col h-full justify-between">
+      {/* Messages */}
+      <div className="flex-grow overflow-y-auto space-y-4 scrollbar-thin scrollbar-thumb-gray-400 scrollbar-track-gray-200/50 p-2">
+        <AnimatePresence>
+          {messages.map((msg, idx) => (
+            <motion.div
+              key={idx}
+              initial={{ opacity: 0, y: 15 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0 }}
+              className={`flex ${
+                msg.sender === "user" ? "justify-end" : "justify-start"
               }`}
             >
               <div
-                className={`inline-block p-3 rounded-lg ${
+                className={`max-w-[65%] px-5 py-3 rounded-2xl shadow-sm break-words text-sm ${
                   msg.sender === "user"
-                    ? "bg-blue-500 text-white"
-                    : "bg-gray-700 text-white"
+                    ? "bg-blue-600 text-white rounded-br-none"
+                    : "bg-gray-200 text-gray-800 rounded-bl-none"
                 }`}
               >
                 {msg.text}
               </div>
-            </div>
+            </motion.div>
           ))}
-          {loading && (
-            <div className="text-center text-gray-400">AI is typing...</div>
-          )}
-        </div>
 
-        {/* Input field and send button */}
-        <div className="flex items-center">
-          <input
-            type="text"
-            className="flex-1 p-3 border-2 border-[#3f4f5f] rounded-l-lg bg-[#2a343f] text-white focus:outline-none focus:border-blue-500 transition-colors"
-            placeholder="Type your query..."
-            value={userQuery}
-            onChange={(e) => setUserQuery(e.target.value)}
-          />
-          <button
-            onClick={handleSendMessage}
-            className="p-3 bg-blue-600 text-white rounded-r-lg hover:bg-blue-700 transition-all"
-          >
-            Send
-          </button>
-        </div>
+          {loading && (
+            <motion.div
+              key="loading"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="flex justify-start"
+            >
+              <div className="flex items-center gap-1">
+                <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
+                <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce delay-200"></div>
+                <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce delay-400"></div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+        <div ref={chatEndRef} />
+      </div>
+
+      {/* Input */}
+      <div className="flex p-4 border-t border-gray-200 bg-white">
+        <input
+          type="text"
+          placeholder="Ask something about this document..."
+          value={userQuery}
+          onChange={(e) => setUserQuery(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && handleSendMessage()}
+          className="flex-1 px-4 py-3 rounded-l-3xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-400 placeholder-gray-400 shadow-sm transition"
+        />
+        <button
+          onClick={handleSendMessage}
+          className="px-5 py-3 bg-blue-600 rounded-r-3xl hover:bg-blue-700 text-white font-medium transition"
+        >
+          Send
+        </button>
       </div>
     </div>
   );

@@ -66,7 +66,7 @@ export default function DocumentUploadBox() {
         draggable: true,
         progress: undefined,
       });
-      navigate("/chat");
+      navigate("/chat", { state: { documentName: file.name } });
     } catch (error) {
       console.error("Error uploading file:", error);
 
