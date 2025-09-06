@@ -45,7 +45,7 @@ export default function DocumentUploadBox() {
     formData.append("file", file);
 
     try {
-      const response = await fetch("https://documentq-a.onrender.com/upload", {
+      const response = await fetch("https://documentq-a-3.onrender.com/upload", {
         method: "POST",
         body: formData,
       });
