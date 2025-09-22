@@ -45,7 +45,8 @@ export default function DocumentUploadBox() {
     formData.append("file", file);
 
     try {
-      const response = await fetch("https://documentq-a.onrender.com/upload", {
+      const response = await fetch("http://localhost:8080/upload", {
+        // const response = await fetch("http://localhost:8080/upload", {
         method: "POST",
         body: formData,
       });
@@ -66,7 +67,9 @@ export default function DocumentUploadBox() {
         draggable: true,
         progress: undefined,
       });
-      navigate("/chat", { state: { documentName: file.name } });
+      navigate("/chat", {
+        state: { documentName: file.name, documentId: data.documentId },
+      });
     } catch (error) {
       console.error("Error uploading file:", error);
 

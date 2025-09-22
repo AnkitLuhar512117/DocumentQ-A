@@ -7,7 +7,7 @@ const Chat = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const documentName = location.state?.documentName || "Untitled Document";
-
+  const documentId = location.state?.documentId;
   return (
     <div className="min-h-screen w-full bg-gradient-to-br from-gray-100 via-gray-200 to-gray-100 flex justify-center items-center p-6">
       {/* Chat container */}
@@ -35,7 +35,7 @@ const Chat = () => {
 
         {/* Chat messages */}
         <div className="flex-grow p-4 overflow-y-auto bg-gray-50">
-          <ChatBox />
+          <ChatBox documentId={documentId} />
         </div>
       </div>
     </div>

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 
-const ChatBox = () => {
+const ChatBox = ({ documentId }) => {
   const [messages, setMessages] = useState([]);
   const [userQuery, setUserQuery] = useState("");
   const [loading, setLoading] = useState(false);
@@ -13,15 +13,17 @@ const ChatBox = () => {
 
   const handleSendMessage = async () => {
     if (!userQuery.trim()) return;
+    const currentQuery = userQuery;
+    setUserQuery("");
 
-    setMessages((prev) => [...prev, { sender: "user", text: userQuery }]);
+    setMessages((prev) => [...prev, { sender: "user", text: currentQuery }]);
     setLoading(true);
 
     try {
-      const response = await fetch("https://documentq-a.onrender.com/chat", {
+      const response = await fetch("http://localhost:8080/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question: userQuery }),
+        body: JSON.stringify({ question: currentQuery, documentId }),
       });
       const data = await response.json();
       setMessages((prev) => [
@@ -37,8 +39,6 @@ const ChatBox = () => {
     } finally {
       setLoading(false);
     }
-
-    setUserQuery("");
   };
 
   return (
@@ -93,7 +93,12 @@ const ChatBox = () => {
           placeholder="Ask something about this document..."
           value={userQuery}
           onChange={(e) => setUserQuery(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && handleSendMessage()}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              handleSendMessage();
+            }
+          }}
           className="flex-1 px-4 py-3 rounded-l-3xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-400 placeholder-gray-400 shadow-sm transition"
         />
         <button
